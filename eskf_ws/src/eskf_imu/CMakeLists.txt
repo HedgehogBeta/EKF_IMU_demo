@@ -34,11 +34,13 @@ ament_target_dependencies(gyro_integral_node rclcpp sensor_msgs)
 target_include_directories(gyro_integral_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
-# ESKF 主体（M3/M4）
-# add_executable(eskf_node src/eskf_node.cpp)
-# ament_target_dependencies(eskf_node rclcpp sensor_msgs geometry_msgs Eigen3)
+# M3：ESKF 预测步节点（观测更新在 M4 加入）
+add_executable(eskf_node src/eskf_node.cpp)
+ament_target_dependencies(eskf_node rclcpp sensor_msgs)
+target_include_directories(eskf_node PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
-install(TARGETS imu_player_node pose_player_node gyro_integral_node test_quaternion
+install(TARGETS imu_player_node pose_player_node gyro_integral_node eskf_node test_quaternion
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/

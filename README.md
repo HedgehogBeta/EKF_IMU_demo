@@ -50,4 +50,28 @@ python3 eskf_ws/src/eskf_imu/scripts/eval_gyro.py \
 
 
 
+## ESKF 预测步
+
+```bash
+cd eskf_ws
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+ros2 run eskf_imu eskf_node --ros-args \
+  -p csv_out:=$PWD/src/eskf_imu/output/ekf_out.csv
+
+ros2 run eskf_imu imu_player_node --ros-args -p csv_path:="$DATA/imu.csv"
+```
+
+验收：
+
+```bash
+python3 eskf_ws/src/eskf_imu/scripts/eval_eskf_predict.py \
+  eskf_ws/src/eskf_imu/output/ekf_out.csv \
+  eskf_ws/src/eskf_imu/output/gyro_out.csv \
+  eskf_ws/src/eskf_imu/output
+```
+
+
+
+
 
