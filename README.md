@@ -22,3 +22,32 @@ python3 eskf_ws/src/eskf_imu/scripts/data_check.py <imu.csv> <pose_cov.csv> [输
 ```
 
 
+
+## 纯积分
+
+```bash
+cd eskf_ws
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+ros2 run eskf_imu gyro_integral_node --ros-args \
+  -p csv_out:=$PWD/src/eskf_imu/output/gyro_out.csv
+
+ros2 run eskf_imu imu_player_node --ros-args -p csv_path:="$DATA/imu.csv"
+```
+
+验收：
+
+```bash
+python3 eskf_ws/src/eskf_imu/scripts/eval_gyro.py \
+  eskf_ws/src/eskf_imu/output/gyro_out.csv "$DATA/pose_cov.csv" eskf_ws/src/eskf_imu/output
+```
+
+测试：
+
+```bash
+./build/eskf_imu/test_quaternion
+```
+
+
+
+
