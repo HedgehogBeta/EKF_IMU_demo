@@ -34,9 +34,9 @@ ament_target_dependencies(gyro_integral_node rclcpp sensor_msgs)
 target_include_directories(gyro_integral_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
-# M3：ESKF 预测步节点（观测更新在 M4 加入）
+# M3：ESKF 预测步节点；M4：再订阅 /pose_cov 做观测更新
 add_executable(eskf_node src/eskf_node.cpp)
-ament_target_dependencies(eskf_node rclcpp sensor_msgs)
+ament_target_dependencies(eskf_node rclcpp sensor_msgs geometry_msgs)
 target_include_directories(eskf_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 

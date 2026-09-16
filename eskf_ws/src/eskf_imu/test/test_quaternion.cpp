@@ -138,9 +138,54 @@ static void test_vs_eigen_random() {
   }
 }
 
+static void test_slerp() {
+  std::mt19937 gen(11);
+  // 端点：u=0 取 a，u=1 取 b（q 与 -q 等价，比较时统一对齐符号）
+  const Quat a = random_quat(gen), b = random_quat(gen);
+  auto same_rotation = [](const Quat& p, const Quat& q) {
+    const double s = eskf_imu::qdot(p, q) < 0 ? -1.0 : 1.0;
+    return std::abs(p.w - s * q.w) + std::abs(p.x - s * q.x) + std::abs(p.y - s * q.y) +
+           std::abs(p.z - s * q.z);
+  };
+  CHECK_NEAR(same_rotation(eskf_imu::qslerp(a, b, 0.0), a), 0, 1e-12, "slerp u=0");
+  CHECK_NEAR(same_rotation(eskf_imu::qslerp(a, b, 1.0), b), 0, 1e-12, "slerp u=1");
+
+  // 随机对照：Eigen 的 slerp 同样走短弧（内部用 dot 的绝对值），所以随机对里
+  // 大约一半的 dot 是负的，这一比就把符号展开也覆盖了。
+  for (int i = 0; i < 200; ++i) {
+    const Quat p = random_quat(gen), q = random_quat(gen);
+    const double u = std::uniform_real_distribution<double>(0.0, 1.0)(gen);
+    const Quat mine = eskf_imu::qslerp(p, q, u);
+    Eigen::Quaterniond e = to_eigen(p).slerp(u, to_eigen(q));
+    const double s = (e.w() * mine.w + e.x() * mine.x + e.y() * mine.y + e.z() * mine.z) < 0
+                         ? -1.0
+                         : 1.0;
+    CHECK_NEAR(std::abs(e.w() - s * mine.w) + std::abs(e.x() - s * mine.x) +
+                   std::abs(e.y() - s * mine.y) + std::abs(e.z() - s * mine.z),
+               0, 1e-12, "qslerp vs Eigen");
+  }
+
+  // 输入整体取反不应改变结果：q 与 -q 是同一旋转，取反后必须仍走短弧
+  const Quat c = random_quat(gen), d = random_quat(gen);
+  const Quat flipped{-d.w, -d.x, -d.y, -d.z};
+  CHECK_NEAR(same_rotation(eskf_imu::qslerp(c, d, 0.37), eskf_imu::qslerp(c, flipped, 0.37)), 0,
+             1e-12, "slerp 对 q -> -q 不敏感");
+
+  // 实测数据里唯一那次符号翻转（pose_cov.csv 第 17957 -> 17958 帧，真转角 0.4705°）：
+  // 两点几乎反向（点积 −0.9999916），插值中点必须在两点之间（≈0.2353°），
+  // 而不是绕着长弧跑到 179.76° 外去。
+  const Quat qa{-0.498322, -0.001200, 0.011233, 0.866919};
+  const Quat qb{0.501876, 0.001140, -0.011313, -0.864865};
+  const Quat mid = eskf_imu::qslerp(qa, qb, 0.5);
+  const double dot_mid = eskf_imu::qdot(eskf_imu::qnormalize(qa), mid);
+  const double ang_mid_deg = 2.0 * std::acos(std::abs(dot_mid)) * 180.0 / M_PI;
+  CHECK_NEAR(ang_mid_deg, 0.2353, 5e-3, "翻转段插值中点应贴近端点（度）");
+}
+
 int main() {
   test_known_values();
   test_vs_eigen_random();
+  test_slerp();
   if (failures == 0) {
     std::printf("test_quaternion: all checks passed\n");
     return 0;

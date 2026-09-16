@@ -62,6 +62,30 @@ inline Quat qexp(const Vec3& phi) {
   return {std::cos(0.5 * angle), s * phi.x, s * phi.y, s * phi.z};
 }
 
+// 球面插值：u=0 取 a，u=1 取 b。
+// 先做符号对齐（b 与 a 点积为负则整体取反）——这两点表示的旋转只差 0.45°，
+// 少了这一步 SLERP 会走 359.55° 的长弧，插值中点偏 180°。
+// 夹角极小时退化为线性插值 + 归一化，避开 sin(theta) -> 0 的除法。
+inline Quat qslerp(const Quat& a, const Quat& b_in, double u) {
+  Quat b = b_in;
+  double d = qdot(a, b);
+  if (d < 0.0) {
+    b = {-b.w, -b.x, -b.y, -b.z};
+    d = -d;
+  }
+  if (d > 1.0) d = 1.0;
+  if (d > 0.9995) {
+    return qnormalize({a.w + u * (b.w - a.w), a.x + u * (b.x - a.x), a.y + u * (b.y - a.y),
+                       a.z + u * (b.z - a.z)});
+  }
+  const double theta = std::acos(d);
+  const double s = std::sin(theta);
+  const double wa = std::sin((1.0 - u) * theta) / s;
+  const double wb = std::sin(u * theta) / s;
+  return qnormalize({wa * a.w + wb * b.w, wa * a.x + wb * b.x, wa * a.y + wb * b.y,
+                     wa * a.z + wb * b.z});
+}
+
 inline Mat3 quat_to_rotation_matrix(const Quat& q) {
   Mat3 R;
   const double ww = q.w * q.w, xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;

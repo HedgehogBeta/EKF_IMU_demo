@@ -1,5 +1,6 @@
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <string>
 #include <vector>
 
@@ -115,9 +116,12 @@ class GyroIntegralNode : public rclcpp::Node {
     last_t_ = s.t;
 
     const eskf_imu::EZYX e = eskf_imu::quat_to_euler_zyx(q_);
-    fout_ << std::fixed << s.t << "," << dt << "," << q_.w << "," << q_.x << "," << q_.y << ","
-          << q_.z << "," << e.roll * 180.0 / M_PI << "," << e.pitch * 180.0 / M_PI << ","
-          << e.yaw * 180.0 / M_PI << "\n";
+    // 时间戳 fixed 9 保留 ns（与 eskf_node 同格式，否则两份 CSV 的时间戳对不齐），
+    // 四元数 9 位小数，dt 与角度 6 位
+    fout_ << std::fixed << std::setprecision(9) << s.t << std::setprecision(6) << "," << dt;
+    fout_ << std::setprecision(9) << "," << q_.w << "," << q_.x << "," << q_.y << "," << q_.z;
+    fout_ << std::setprecision(6) << "," << e.roll * 180.0 / M_PI << ","
+          << e.pitch * 180.0 / M_PI << "," << e.yaw * 180.0 / M_PI << "\n";
     ++written_;
   }
 
