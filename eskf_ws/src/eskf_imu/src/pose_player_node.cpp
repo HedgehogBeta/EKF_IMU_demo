@@ -27,24 +27,6 @@ class PosePlayerNode : public rclcpp::Node {
     RCLCPP_INFO(get_logger(), "读入 %zu 行（跳过 %zu），起始时刻 %.9f",
                 t.rows.size(), t.skipped_rows, t.row(0)[0]);
 
-    // 开头若干帧协方差全零，这里数出来报告；用不用由 ESKF 侧处理
-    size_t zero_cov_frames = 0;
-    for (const auto& r : t.rows) {
-      bool all_zero = true;
-      for (int k = 0; k < 36; ++k) {
-        if (std::abs(r[8 + k]) > 0.0) {
-          all_zero = false;
-          break;
-        }
-      }
-      if (all_zero) {
-        ++zero_cov_frames;
-      } else {
-        break;
-      }
-    }
-    RCLCPP_INFO(get_logger(), "文件开头协方差全零的帧数: %zu", zero_cov_frames);
-
     pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/pose_cov", 50);
   }
 

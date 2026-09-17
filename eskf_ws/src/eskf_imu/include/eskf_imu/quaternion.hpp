@@ -4,7 +4,7 @@
 
 namespace eskf_imu {
 
-// 四元数运算用 test_quaternion 与 Eigen 对照。
+// 四元数运算（只用标准库，可脱离 ROS 单独编译）。
 // 约定：q 表示机体系 → 世界系的旋转 R_WB；体轴角增量右乘，q <- q ⊗ Exp(ω Δt)。
 // 分量顺序：w 在前（x,y,z 为向量部分）。
 struct Quat {
@@ -101,38 +101,6 @@ inline Mat3 quat_to_rotation_matrix(const Quat& q) {
   R(2, 1) = 2.0 * (yz + wx);
   R(2, 2) = ww - xx - yy + zz;
   return R;
-}
-
-// 旋转矩阵 -> 四元数（Shepperd 分支法：按迹/主对角元选数值最稳的分支）
-inline Quat quat_from_rotation_matrix(const Mat3& R) {
-  const double trace = R(0, 0) + R(1, 1) + R(2, 2);
-  Quat q;
-  if (trace > 0.0) {
-    const double s = std::sqrt(trace + 1.0) * 2.0;  // s = 4w
-    q.w = 0.25 * s;
-    q.x = (R(2, 1) - R(1, 2)) / s;
-    q.y = (R(0, 2) - R(2, 0)) / s;
-    q.z = (R(1, 0) - R(0, 1)) / s;
-  } else if (R(0, 0) > R(1, 1) && R(0, 0) > R(2, 2)) {
-    const double s = std::sqrt(1.0 + R(0, 0) - R(1, 1) - R(2, 2)) * 2.0;  // s = 4x
-    q.w = (R(2, 1) - R(1, 2)) / s;
-    q.x = 0.25 * s;
-    q.y = (R(0, 1) + R(1, 0)) / s;
-    q.z = (R(0, 2) + R(2, 0)) / s;
-  } else if (R(1, 1) > R(2, 2)) {
-    const double s = std::sqrt(1.0 + R(1, 1) - R(0, 0) - R(2, 2)) * 2.0;  // s = 4y
-    q.w = (R(0, 2) - R(2, 0)) / s;
-    q.x = (R(0, 1) + R(1, 0)) / s;
-    q.y = 0.25 * s;
-    q.z = (R(1, 2) + R(2, 1)) / s;
-  } else {
-    const double s = std::sqrt(1.0 + R(2, 2) - R(0, 0) - R(1, 1)) * 2.0;  // s = 4z
-    q.w = (R(1, 0) - R(0, 1)) / s;
-    q.x = (R(0, 2) + R(2, 0)) / s;
-    q.y = (R(1, 2) + R(2, 1)) / s;
-    q.z = 0.25 * s;
-  }
-  return qnormalize(q);
 }
 
 // ZYX 内旋欧拉角（yaw 绕 z -> pitch 绕 y -> roll 绕 x），返回 (roll, pitch, yaw)

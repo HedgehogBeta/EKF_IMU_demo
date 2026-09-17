@@ -9,38 +9,26 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(Eigen3 REQUIRED)
 
+# 数据回放：imu.csv -> /imu
 add_executable(imu_player_node src/imu_player_node.cpp)
 ament_target_dependencies(imu_player_node rclcpp sensor_msgs)
 target_include_directories(imu_player_node PRIVATE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  ${EIGEN3_INCLUDE_DIR})
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
+# 数据回放：pose_cov.csv -> /pose_cov（作为观测）
 add_executable(pose_player_node src/pose_player_node.cpp)
 ament_target_dependencies(pose_player_node rclcpp geometry_msgs)
 target_include_directories(pose_player_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
-# M2：手写四元数单元测试（不依赖 ROS，与 Eigen 对照）
-add_executable(test_quaternion test/test_quaternion.cpp)
-target_include_directories(test_quaternion PRIVATE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  ${EIGEN3_INCLUDE_DIR})
-
-# M2：纯陀螺积分节点
-add_executable(gyro_integral_node src/gyro_integral_node.cpp)
-ament_target_dependencies(gyro_integral_node rclcpp sensor_msgs)
-target_include_directories(gyro_integral_node PRIVATE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-
-# M3：ESKF 预测步节点；M4：再订阅 /pose_cov 做观测更新
+# ESKF：IMU 预测 + 位姿观测更新（姿态+位置）
 add_executable(eskf_node src/eskf_node.cpp)
 ament_target_dependencies(eskf_node rclcpp sensor_msgs geometry_msgs)
 target_include_directories(eskf_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 
-install(TARGETS imu_player_node pose_player_node gyro_integral_node eskf_node test_quaternion
+install(TARGETS imu_player_node pose_player_node eskf_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/

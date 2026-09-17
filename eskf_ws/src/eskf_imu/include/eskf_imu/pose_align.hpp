@@ -13,8 +13,8 @@ namespace eskf_imu {
 struct PoseObs {
   Quat q;
   double p[3] = {0.0, 0.0, 0.0};
-  double r_diag[3] = {0.0, 0.0, 0.0};        // 姿态观测的 R 对角线（cov_33/44/55）
-  double r_pos_diag[3] = {0.0, 0.0, 0.0};    // 位置观测的 R 对角线（cov_00/11/22），M7/M8 用
+  double r_diag[3] = {0.0, 0.0, 0.0};      // 姿态观测的 R 对角线（cov_33/44/55）
+  double r_pos_diag[3] = {0.0, 0.0, 0.0};  // 位置观测的 R 对角线（cov_00/11/22）
   bool valid = false;
 };
 
@@ -25,8 +25,7 @@ struct PoseObs {
 //     的毛刺（实测 pose_cov.csv 第 17957 帧，真转角只有 0.45°），不展开则相邻两样本
 //     之间的 SLERP 会走 359.55° 长弧、插值中点偏 180°，残差瞬间跳到 ≈2。
 //  2) 取值时找**括号**（前一条 <= t <= 后一条）：姿态做 SLERP，**位置做线性插值**
-//     （位置是向量，没有符号问题），协方差取最近邻
-//     （CONTEXT.md「插值对齐」：姿态插值、协方差最近邻）。
+//     （位置是向量，没有符号问题），协方差取最近邻。
 //  3) 位置与姿态来自同一条 pose_cov 记录，必须用同一个时刻插值出来 —— 否则位置观测
 //     和姿态观测说的不是同一个瞬间。
 //
@@ -84,7 +83,6 @@ class PoseAligner {
     return kOk;
   }
 
-  size_t size() const { return buf_.size(); }
   size_t out_of_order() const { return out_of_order_; }
 
  private:

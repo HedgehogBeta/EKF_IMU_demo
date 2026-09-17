@@ -7,9 +7,7 @@
 namespace eskf_imu {
 
 // ---------------- 手写方阵 ----------------
-// N×N 行主序方阵。误差状态按维度分块：M3/M4 的姿态+零偏是 6 维（Mat6），
-// M7/M8 的选做再追加位置/速度/加计零偏，共 15 维（Mat15）。
-// 不引 Eigen：算法层要能在没有 ROS/Eigen 的环境里用随机输入做离线单测。
+// N×N 行主序方阵。不用 Eigen：算法层只用标准库，能脱离 ROS 单独编译。
 template <int N>
 struct MatN {
   double m[N][N] = {};  // 默认全零
@@ -52,7 +50,6 @@ inline MatN<N> mat_mul_by_transpose(const MatN<N>& a, const MatN<N>& b) {
   return r;
 }
 
-using Mat6 = MatN<6>;
 using Mat15 = MatN<15>;
 
 // 3x3 求逆（S = HPHᵀ + R 对称正定），伴随矩阵除以行列式。
@@ -117,7 +114,7 @@ struct UpdateResult {
 //   误差状态：δx = [δp, δv, δθ, δb_g, δb_a] ∈ ℝ¹⁵，P 为 15×15
 // 单位：位置 m、速度 m/s、陀螺 rad/s、**加速度 m/s²、加计零偏 m/s²**。
 // 实测 IMU 数据里加速度是 g，节点负责换算（见 eskf_node 的 g_ms2 参数）。
-// 坐标约定沿用 M2：q 表示机体系 → 世界系（R_WB），体轴角增量右乘。
+// 坐标约定：q 表示机体系 → 世界系（R_WB），体轴角增量右乘。
 class Eskf {
  public:
   static constexpr int kDim = 15;
@@ -137,7 +134,7 @@ class Eskf {
     double ba = 5e-2;     // m/s²：静止段估计被尺度因子污染（实测差 0.57%，约 0.057 m/s²）
   };
 
-  // Q 的四个噪声源（题面要求含陀螺零偏随机游走；做位置选做再加加计零偏项）
+  // Q 的四个噪声源（题面要求含零偏随机游走）
   struct Noise {
     double sigma_g = 0.0032;   // 陀螺白噪声 std，rad/s（静止段统计）
     double sigma_bg = 1e-4;    // 陀螺零偏随机游走，rad/s/√s
@@ -190,8 +187,6 @@ class Eskf {
     //      δv' = −R[f]× δθ − R δb_a
     //      δθ' = −[ω]× δθ − δb_g
     //      δb_g' = 0,  δb_a' = 0
-    //    "F 右上角那一项"在 15 维里的位置：[δv, δθ] 与 [δv, δb_a] 是加计/姿态/零偏的耦合，
-    //    [δθ, δb_g] 仍是 M3 那块 −Δt·I（零偏误差会随时间积分成姿态误差）。
     Mat15 F = Mat15::identity();
     const Mat3 Sf = skew(f);
     for (int i = 0; i < 3; ++i) {
@@ -212,16 +207,14 @@ class Eskf {
     F(kTheta + 2, kTheta + 1) = -w[0] * dt;
 
     // ③ Q：四个噪声源各一块
-    //    δv 块 σ_a²Δt²：加计白噪声在这一步里积成速度误差
-    //    δθ 块 σ_g²Δt²：陀螺白噪声积成姿态误差
-    //    δb_g / δb_a 块 σ²Δt：随机游走（题面明确要求零偏项；做位置选做再加加计零偏项）
+    //    δv 块 σ_a²Δt²、δθ 块 σ_g²Δt²：白噪声在这一步里积成速度/姿态误差
+    //    δb_g / δb_a 块 σ²Δt：零偏随机游走（题面要求 Q 含零偏项）
     Mat15 Qc;
     for (int i = 0; i < 3; ++i) {
       Qc(kV + i, kV + i) = noise_.sigma_a * noise_.sigma_a * dt * dt;
       Qc(kTheta + i, kTheta + i) = noise_.sigma_g * noise_.sigma_g * dt * dt;
       Qc(kBg + i, kBg + i) = noise_.sigma_bg * noise_.sigma_bg * dt;
-      Qc(kBa + i, kBa + i) =
-          estimate_acc_bias_ ? noise_.sigma_ba * noise_.sigma_ba * dt : 0.0;
+      Qc(kBa + i, kBa + i) = noise_.sigma_ba * noise_.sigma_ba * dt;
     }
 
     // ④ P ← F·P·Fᵀ + Q
@@ -231,7 +224,7 @@ class Eskf {
     }
   }
 
-  // 姿态观测（M4，必做）：直接观测姿态本身（h(q) = q），H = [0 0 I₃ 0 0]（选 δθ 那 3 列）。
+  // 姿态观测：直接观测姿态本身（h(q) = q），H = [0 0 I₃ 0 0]（选 δθ 那 3 列）。
   // q_obs 为已对齐到当前时刻的姿态观测，r_diag = (cov_33, cov_44, cov_55) 逐帧读取。
   UpdateResult update(const Quat& q_obs, const double r_diag[3]) {
     // 符号对齐：q 与 -q 是同一旋转。不对齐则残差方向整体反过来，修正会推错方向。
@@ -245,7 +238,7 @@ class Eskf {
     return apply_observation(kCol, z, r_diag);
   }
 
-  // 位置观测（M7/M8，选做）：观测值 pose_cov 的 x,y,z（m），H = [I₃ 0 …]（选 δp 那 3 列）。
+  // 位置观测：观测值 pose_cov 的 x,y,z（m），H = [I₃ 0 …]（选 δp 那 3 列）。
   // r_diag = (cov_00, cov_11, cov_22) 逐帧读取。
   // 残差就是向量差 z = p_obs − p̂（位置是线性量，没有姿态那种符号问题）。
   UpdateResult update_position(const double p_obs[3], const double r_diag[3]) {
@@ -268,9 +261,6 @@ class Eskf {
     g_w_[1] = 0.0;
     g_w_[2] = g_ms2;  // 世界系 z 朝上，比力参考取 (0,0,+|g|)（静止时加计读数是 +1 g）
   }
-  // 对照实验开关：false 时加计零偏冻结在初值（既不注入修正、也不涨方差），
-  // 用来演示"不补 b_a 位置会飞"。默认 true。
-  void set_estimate_acc_bias(bool on) { estimate_acc_bias_ = on; }
 
   // R 对角线的下限。题目规定 R 逐帧取自 pose_cov.csv，本身不可调；
   // 这个下限只是数值兜底，防止 0 值让 S 病态（前 20 帧协方差全零）。
@@ -323,7 +313,7 @@ class Eskf {
     q_ = qnormalize(qmul(q_, qexp({dx[kTheta], dx[kTheta + 1], dx[kTheta + 2]})));
     for (int i = 0; i < 3; ++i) {
       bg_[i] += dx[kBg + i];
-      if (estimate_acc_bias_) ba_[i] += dx[kBa + i];
+      ba_[i] += dx[kBa + i];
     }
 
     // ⑥ P ← (I − KH)P = P − K·P_c 行（KH 只留 H 的那 3 列对应的行）。
@@ -349,7 +339,6 @@ class Eskf {
   Noise noise_;
   double g_w_[3] = {0.0, 0.0, 9.80665};
   double r_min_ = 1e-8;
-  bool estimate_acc_bias_ = true;
 };
 
 }  // namespace eskf_imu

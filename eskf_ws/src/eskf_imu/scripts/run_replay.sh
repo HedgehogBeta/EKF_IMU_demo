@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
 # 回放一遍：起 eskf_node（先起，等话题）+ pose/imu 两个 player，回放完给节点发 SIGINT。
-#
-# 用法：
-#   scripts/run_replay.sh <输出CSV绝对路径> [eskf_node 的额外 -p 参数 ...]
-#
-# 例：
-#   scripts/run_replay.sh $PWD/output/ekf_out.csv
-#   scripts/run_replay.sh $PWD/output/ekf_pv_out.csv -p estimate_position:=true
-#   scripts/run_replay.sh $PWD/output/ekf_pv_noobs.csv -p estimate_position:=true -p use_position_update:=false
-#
-# 约定与 M4 手跑一致：节点比 player 早 3 s 启动（ROS2 发现需要时间，晚订阅会丢开头的帧）；
-# 两个 player 都按 speed:=20 加速回放，但**时间戳仍是原始的**，Δt 与观测对齐逻辑不受影响。
-# 节点日志留在 <输出CSV>.log（里面有验收数字）。
 # 注意：不能开 set -u —— ROS2 的 setup.bash 自己会引用未定义变量（AMENT_TRACE_SETUP_FILES）。
 set -o pipefail
 
@@ -22,12 +10,13 @@ ROOT=$(cd "$WS/.." && pwd)                           # .../EKF_IMU_demo
 DATA="$ROOT/data"
 
 if [ $# -lt 1 ]; then
-  sed -n '2,12p' "$0"
+  usage
   exit 2
 fi
 OUT=$1
 shift
 LOG="$OUT.log"
+mkdir -p "$(dirname "$OUT")"
 
 source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
@@ -53,7 +42,7 @@ sleep 0.5
 
 # 收尾必须给**节点本身**发 SIGINT：`ros2 run` 是 python 包装进程，真正的节点是它的子进程，
 # 只 kill 包装进程打不到节点，节点就不会走 finish()（还压在 pending_ 队列里的最后几十帧
-# 不会 flush，CSV 少尾）。所以这里给整个进程组发信号。
+# 不会 flush，CSV 少尾）。所以这里按可执行文件名找真正的节点进程。
 # （终端里手跑时按 Ctrl+C 是对整个前台进程组发 SIGINT，所以一直没暴露这个问题。）
 NODE_PID=$(pgrep -f "lib/eskf_imu/eskf_node" | head -1)
 if [ -n "${NODE_PID:-}" ]; then

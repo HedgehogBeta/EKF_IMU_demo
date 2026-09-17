@@ -1,0 +1,10 @@
+/.vscode
+
+eskf_ws/build/
+eskf_ws/install/
+eskf_ws/log/
+eskf_ws/src/eskf_imu/output/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
