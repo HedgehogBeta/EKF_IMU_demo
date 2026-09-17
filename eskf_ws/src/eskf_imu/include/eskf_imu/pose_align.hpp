@@ -7,23 +7,28 @@
 
 namespace eskf_imu {
 
-// 对齐到某个 IMU 时刻的一次姿态观测。
+// 对齐到某个 IMU 时刻的一次位姿观测。
 // valid=false 表示协方差整行为 0（观测尚未初始化，pose_cov.csv 开头 20 帧），
 // 调用方应当跳过这次更新而不是把 R 当成 0 用。
 struct PoseObs {
   Quat q;
-  double r_diag[3] = {0.0, 0.0, 0.0};
+  double p[3] = {0.0, 0.0, 0.0};
+  double r_diag[3] = {0.0, 0.0, 0.0};        // 姿态观测的 R 对角线（cov_33/44/55）
+  double r_pos_diag[3] = {0.0, 0.0, 0.0};    // 位置观测的 R 对角线（cov_00/11/22），M7/M8 用
   bool valid = false;
 };
 
 // 位姿观测的时间对齐。不依赖 ROS，可离线喂 CSV 做单测。
 //
-// 两件事：
+// 三件事：
 //  1) 入缓冲时**符号展开**：与上一条样本点积为负就整体取反。姿态序列里混有 q -> -q
 //     的毛刺（实测 pose_cov.csv 第 17957 帧，真转角只有 0.45°），不展开则相邻两样本
 //     之间的 SLERP 会走 359.55° 长弧、插值中点偏 180°，残差瞬间跳到 ≈2。
-//  2) 取值时找**括号**（前一条 <= t <= 后一条）做 SLERP，协方差取最近邻
+//  2) 取值时找**括号**（前一条 <= t <= 后一条）：姿态做 SLERP，**位置做线性插值**
+//     （位置是向量，没有符号问题），协方差取最近邻
 //     （CONTEXT.md「插值对齐」：姿态插值、协方差最近邻）。
+//  3) 位置与姿态来自同一条 pose_cov 记录，必须用同一个时刻插值出来 —— 否则位置观测
+//     和姿态观测说的不是同一个瞬间。
 //
 // 调用方必须按 t 不减的顺序调用 lookup（IMU 帧天然如此）。样本不够时返回 kNeedMore
 // 表示"等等后面的样本"；kNoObsYet 表示 t 早于最早的样本，这一帧永远等不到括号。
@@ -33,7 +38,8 @@ class PoseAligner {
 
   // 原始观测入缓冲。q_raw 不做预处理，符号展开在这里做。
   // 时间戳必须递增，否则该样本被丢弃并计数（回放数据是递增的，出现即异常）。
-  void push(double t, const Quat& q_raw, double r00, double r11, double r22, bool valid) {
+  void push(double t, const Quat& q_raw, const double p[3], const double r[3],
+            const double r_pos[3], bool valid) {
     Quat q = q_raw;
     if (has_last_ && qdot(q, last_q_) < 0.0) {
       q = {-q.w, -q.x, -q.y, -q.z};  // 展开到与上一条同半球，SLERP 才会走短弧
@@ -45,7 +51,8 @@ class PoseAligner {
       ++out_of_order_;
       return;
     }
-    buf_.push_back(Sample{t, q, {r00, r11, r22}, valid});
+    buf_.push_back(Sample{t, q, {p[0], p[1], p[2]}, {r[0], r[1], r[2]},
+                          {r_pos[0], r_pos[1], r_pos[2]}, valid});
   }
 
   // 取时刻 t 的观测。kOk 时填好 out。
@@ -59,6 +66,7 @@ class PoseAligner {
     // 时间戳正好落在某条样本上：这条就是 t 时刻的观测，不需要右括号
     if (buf_[cursor_].t == t) {
       out.q = buf_[cursor_].q;
+      for (int k = 0; k < 3; ++k) out.p[k] = buf_[cursor_].p[k];
       fill(out, buf_[cursor_]);
       consume();
       return kOk;
@@ -70,7 +78,8 @@ class PoseAligner {
     const double span = b.t - a.t;
     const double u = span > 0.0 ? (t - a.t) / span : 0.0;
     out.q = qslerp(a.q, b.q, u);
-    fill(out, (u < 0.5) ? a : b);  // 只取协方差与有效性，姿态用插值结果
+    for (int k = 0; k < 3; ++k) out.p[k] = a.p[k] + u * (b.p[k] - a.p[k]);
+    fill(out, (u < 0.5) ? a : b);  // 只取协方差与有效性，姿态/位置用插值结果
     consume();
     return kOk;
   }
@@ -82,15 +91,20 @@ class PoseAligner {
   struct Sample {
     double t;
     Quat q;
+    double p[3];
     double r_diag[3];
+    double r_pos_diag[3];
     bool valid;
   };
 
-  // 只搬协方差与有效性；姿态一定是插值结果，不能在这里被样本覆盖掉
+  // 只搬协方差与有效性；姿态/位置一定是插值结果，不能在这里被样本覆盖掉
   static void fill(PoseObs& out, const Sample& s) {
     out.r_diag[0] = s.r_diag[0];
     out.r_diag[1] = s.r_diag[1];
     out.r_diag[2] = s.r_diag[2];
+    out.r_pos_diag[0] = s.r_pos_diag[0];
+    out.r_pos_diag[1] = s.r_pos_diag[1];
+    out.r_pos_diag[2] = s.r_pos_diag[2];
     out.valid = s.valid;
   }
 
